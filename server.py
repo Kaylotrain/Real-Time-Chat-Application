@@ -1,22 +1,55 @@
 # Import required modules
 import socket
 import threading
+import os
+from ppadb.client import Client as AdbClient
 
 HOST = '127.0.0.1'
 PORT = 1234 # You can use any port between 0 to 65535
 LISTENER_LIMIT = 5
 active_clients = [] # List of all currently connected users
 
+
+client = AdbClient(host="127.0.0.1", port=5037)
+devices = client.devices()
+device = devices[0]
+file = open("server_messages.txt", "w")
+file.write("Connected to server\n")
+file.close()
+device.push("server_messages.txt", "/sdcard/PythonChat/server_messages.txt")
+def lisent_for_file_updates():
+    last_lines = 0
+    while True:
+        #we will open a file named received_messages.txt and read the last line
+        #if the last line is not the same as the last message we received
+        #we will send the message to all the clients
+        try:
+            device.pull("/sdcard/PythonChat/recived_messages.txt", "recived_messages.txt")
+            f = open("recived_messages.txt", "r")
+            #get all the lines in the file
+            lines = f.readlines()
+            #check if the last line is not the same as the last message we received
+            if last_lines < len(lines):
+                for i in range(last_lines, len(lines)):
+                    send_messages_to_all("[USB Device]~"+lines[i])
+                last_lines = len(lines)
+        except Exception as e:
+            
+            pass
+
 # Function to listen for upcoming messages from a client
 def listen_for_messages(client, username):
-
     while 1:
-
         message = client.recv(2048).decode('utf-8')
         if message != '':
-            
             final_msg = username + '~' + message
+            file = open("server_messages.txt", "a")
+            file.write(final_msg + "\n")
+            file.flush()
+            device.push("server_messages.txt", "/sdcard/PythonChat/server_messages.txt")
             send_messages_to_all(final_msg)
+            file.close()
+            
 
         else:
             print(f"The message send from client {username} is empty")
@@ -30,6 +63,8 @@ def send_message_to_client(client, message):
 # Function to send any new message to all the clients that
 # are currently connected to this server
 def send_messages_to_all(message):
+    # Write the message to the file
+    
     
     for user in active_clients:
 
@@ -72,7 +107,7 @@ def main():
 
     # Set server limit
     server.listen(LISTENER_LIMIT)
-
+    threading.Thread(target=lisent_for_file_updates).start()
     # This while loop will keep listening to client connections
     while 1:
 
