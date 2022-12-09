@@ -4,19 +4,23 @@ import threading
 import os
 from ppadb.client import Client as AdbClient
 
-HOST = '127.0.0.1'
+HOST = '192.168.100.6'
 PORT = 1234 # You can use any port between 0 to 65535
 LISTENER_LIMIT = 5
 active_clients = [] # List of all currently connected users
-
+disconnect_message = "exit"
 
 client = AdbClient(host="127.0.0.1", port=5037)
 devices = client.devices()
 device = devices[0]
+
 file = open("server_messages.txt", "w")
 file.write("Connected to server\n")
 file.close()
 device.push("server_messages.txt", "/sdcard/PythonChat/server_messages.txt")
+#find recived_messages.txt and delete it if it exists in the current directory
+
+
 def lisent_for_file_updates():
     last_lines = 0
     while True:
@@ -31,7 +35,7 @@ def lisent_for_file_updates():
             #check if the last line is not the same as the last message we received
             if last_lines < len(lines):
                 for i in range(last_lines, len(lines)):
-                    send_messages_to_all("[USB Device]~"+lines[i])
+                    send_messages_to_all("USB Device~"+lines[i])
                 last_lines = len(lines)
         except Exception as e:
             
@@ -41,15 +45,26 @@ def lisent_for_file_updates():
 def listen_for_messages(client, username):
     while 1:
         message = client.recv(2048).decode('utf-8')
-        if message != '':
+        if message != '' and message != disconnect_message:
             final_msg = username + '~' + message
             file = open("server_messages.txt", "a")
-            file.write(final_msg + "\n")
+            file.write(f'[{username}] {message}' + "\n")
             file.flush()
             device.push("server_messages.txt", "/sdcard/PythonChat/server_messages.txt")
             send_messages_to_all(final_msg)
             file.close()
-            
+        elif message == disconnect_message:
+            prompt_message = "SERVER~" + f"{username} left the chat"
+            print(prompt_message)
+            file = open("server_messages.txt", "a")
+            file.write(f'[SERVER] {username} left the chat' + "\n")
+            file.flush()
+            device.push("server_messages.txt", "/sdcard/PythonChat/server_messages.txt")
+            send_messages_to_all(prompt_message)
+            active_clients.remove((username, client))
+            client.close()
+            file.close()
+            break
 
         else:
             print(f"The message send from client {username} is empty")
@@ -81,12 +96,18 @@ def client_handler(client):
         if username != '':
             active_clients.append((username, client))
             prompt_message = "SERVER~" + f"{username} added to the chat"
+            file = open("server_messages.txt", "a")
+            file.write(f'[SERVER] {username} added to chat' + "\n")
+            file.flush()
+            device.push("server_messages.txt", "/sdcard/PythonChat/server_messages.txt")
             send_messages_to_all(prompt_message)
+            file.close()
             break
         else:
             print("Client username is empty")
 
     threading.Thread(target=listen_for_messages, args=(client, username, )).start()
+    
 
 # Main function
 def main():
